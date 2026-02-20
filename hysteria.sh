@@ -10,7 +10,7 @@ set -e
 ###
 
 # Domain Name
-DOMAIN="azzphuc.pro"
+DOMAIN="bing.com"
 
 # PROTOCOL
 PROTOCOL="udp"
