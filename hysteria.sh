@@ -10,7 +10,7 @@ set -e
 ###
 
 # Domain Name
-DOMAIN="bing.com"
+DOMAIN="iptunnel.eu.org"
 
 # PROTOCOL
 PROTOCOL="udp"
