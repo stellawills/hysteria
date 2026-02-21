@@ -19,10 +19,10 @@ PROTOCOL="udp"
 UDP_PORT=":5666"
 
 # OBFS
-OBFS="azzphuc"
+OBFS="iptunnel"
 
 # PASSWORDS
-PASSWORD="azzphuc"
+PASSWORD="iptunnel"
 # Basename of this script
 SCRIPT_NAME="$(basename "$0")"
 
@@ -43,7 +43,7 @@ REPO_URL="https://github.com/apernet/hysteria"
 API_BASE_URL="https://api.github.com/repos/apernet/hysteria"
 
 # curl command line flags.
-# To using a proxy, please specify ALL_PROXY in the environ variable, such like:
+# To use a proxy, please specify ALL_PROXY in the environment variable, such as:
 # export ALL_PROXY=socks5h://192.0.2.1:1080
 CURL_FLAGS=(-L -f -q --retry 5 --retry-delay 10 --retry-max-time 60)
 
@@ -55,7 +55,7 @@ CURL_FLAGS=(-L -f -q --retry 5 --retry-delay 10 --retry-max-time 60)
 # Package manager
 PACKAGE_MANAGEMENT_INSTALL="${PACKAGE_MANAGEMENT_INSTALL:-}"
 
-# Operating System of current machine, supported: linux
+# Operating System of current machine, supported: Linux
 OPERATING_SYSTEM="${OPERATING_SYSTEM:-}"
 
 # Architecture of current machine, supported: 386, amd64, arm, arm64, mipsle, s390x
@@ -75,7 +75,7 @@ HYSTERIA_HOME_DIR="${HYSTERIA_HOME_DIR:-}"
 # Supported operation: install, remove, check_update
 OPERATION=
 
-# User specified version to install
+# User-specified version to install
 VERSION=
 
 # Force install even if installed
@@ -297,14 +297,14 @@ check_permission() {
 		
 		case "$FORCE_NO_ROOT" in
 		'1')
-		warning "FORCE_NO_ROOT=1 is specified, we will process without root and you may encounter the insufficient privilege error."
+		warning "FORCE_NO_ROOT=1 is specified, we will process without root, and you may encounter the insufficient privilege error."
 		;;
 	*)
 	if has_command sudo; then
-		note "Re-running this script with sudo, you can also specify FORCE_NO_ROOT=1 to force this script running with current user."
+		note "Re-running this script with sudo, you can also specify FORCE_NO_ROOT=1 to force this script to run with the current user."
 		exec_sudo "$0" "${SCRIPT_ARGS[@]}"
 		else
-			error "Please run this script with root or specify FORCE_NO_ROOT=1 to force this script running with current user."
+			error "Please run this script with root or specify FORCE_NO_ROOT=1 to force this script to run with the current user."
 			exit 13
 			fi
 			;;
@@ -313,7 +313,7 @@ check_permission() {
 
 check_environment_operating_system() {
 	if [[ -n "$OPERATING_SYSTEM" ]]; then
-		warning "OPERATING_SYSTEM=$OPERATING_SYSTEM is specified, opreating system detection will not be perform."
+		warning "OPERATING_SYSTEM=$OPERATING_SYSTEM is specified, operating system detection will not be performed."
 		return
 		fi
 		
@@ -323,7 +323,7 @@ check_environment_operating_system() {
 			fi
 			
 			error "This script only supports Linux."
-			note "Specify OPERATING_SYSTEM=[linux|darwin|freebsd|windows] to bypass this check and force this script running on this $(uname)."
+			note "Specify OPERATING_SYSTEM=[linux|darwin|freebsd|windows] to bypass this check and force this script to run on this $(uname)."
 			exit 95
 }
 
@@ -354,7 +354,7 @@ check_environment_architecture() {
 	;;
 	*)
 	error "The architecture '$(uname -a)' is not supported."
-	note "Specify ARCHITECTURE=<architecture> to bypass this check and force this script running on this $(uname -m)."
+	note "Specify ARCHITECTURE=<architecture> to bypass this check and force this script to run on this $(uname -m)."
 	exit 8
 	;;
 	esac
@@ -370,12 +370,12 @@ check_environment_systemd() {
 		warning "FORCE_NO_SYSTEMD=1 is specified, we will process as normal even if systemd is not detected by us."
 		;;
 	'2')
-	warning "FORCE_NO_SYSTEMD=2 is specified, we will process but all systemd related command will not be executed."
+	warning "FORCE_NO_SYSTEMD=2 is specified, we will process, but all systemd related command will not be executed."
 	;;
 	*)
 	error "This script only supports Linux distributions with systemd."
-	note "Specify FORCE_NO_SYSTEMD=1 to disable this check and force this script running as systemd is detected."
-	note "Specify FORCE_NO_SYSTEMD=2 to disable this check along with all systemd related commands."
+	note "Specify FORCE_NO_SYSTEMD=1 to disable this check and force this script to run as systemd is detected."
+	note "Specify FORCE_NO_SYSTEMD=2 to disable this check along with all systemd-related commands."
 	;;
 	esac
 }
@@ -541,18 +541,18 @@ check_hysteria_homedir() {
 
 show_usage_and_exit() {
 	echo
-	echo -e "\t$(tbold)$SCRIPT_NAME$(treset) - AZZPHUC PRO Hysteria Server Install Script"
+	echo -e "\t$(tbold)$SCRIPT_NAME$(treset) - IP Tunnel VPN Hysteria Server Install Script"
 	echo
 	echo -e "Usage:"
 	echo
-	echo -e "$(tbold)Install AZZPHUC PRO$(treset)"
+	echo -e "$(tbold)Install IP Tunnel VPN$(treset)"
 	echo -e "\t$0 [ -f | -l <file> | --version <version> ]"
 	echo -e "Flags:"
 	echo -e "\t-f, --force\tForce re-install latest or specified version even if it has been installed."
-	echo -e "\t-l, --local <file>\tInstall specified AZZPHUC PRO binary instead of download it."
+	echo -e "\t-l, --local <file>\tInstall specified IP Tunnel VPN binary instead of downloading it."
 	echo -e "\t--version <version>\tInstall specified version instead of the latest."
 	echo
-	echo -e "$(tbold)Remove AZZPHUC PRO$(treset)"
+	echo -e "$(tbold)Remove IP Tunnel VPN$(treset)"
 	echo -e "\t$0 --remove"
 	echo
 	echo -e "$(tbold)Check for the update$(treset)"
@@ -581,7 +581,7 @@ parse_arguments() {
 			fi
 			shift
 			if ! has_prefix "$VERSION" 'v'; then
-				show_argument_error_and_exit "Version numbers should begin with 'v' (such like 'v1.3.1'), got '$VERSION'"
+				show_argument_error_and_exit "Version numbers should begin with 'v' (such as 'v1.3.1'), got '$VERSION'"
 				fi
 				;;
 			 
@@ -615,10 +615,10 @@ parse_arguments() {
 					;;
 				*)
 				if [[ -n "$VERSION" ]]; then
-					show_argument_error_and_exit "--version is only avaiable when install."
+					show_argument_error_and_exit "--version is only available when installing."
 					fi
 					if [[ -n "$LOCAL_FILE" ]]; then
-						show_argument_error_and_exit "--local is only avaiable when install."
+						show_argument_error_and_exit "--local is only available when installing."
 						fi
 						;;
 					esac
@@ -635,7 +635,7 @@ tpl_hysteria_server_service_base() {
 
   cat << EOF
 [Unit]
-Description=AZZPHUC PRO Service
+Description=IP Tunnel VPN Service
 After=network.target
 
 [Service]
@@ -664,7 +664,7 @@ tpl_hysteria_server_x_service() {
 tpl_etc_hysteria_config_json() {
   cat << EOF
 {
-  "server": "azzphuc.pro",
+  "server": "iptunnel.eu.org",
    "listen": "$UDP_PORT",
   "protocol": "$PROTOCOL",
   "cert": "/etc/hysteria/hysteria.server.crt",
@@ -871,16 +871,16 @@ perform_install() {
 					    start_services
 						if [[ -n "$_is_frash_install" ]]; then
 							echo
-							echo -e "$(tbold)Congratulation! AZZPHUC PRO has been successfully installed on your server.$(treset)"
+							echo -e "$(tbold)Congratulation! IP Tunnel VPN Hysteria Script has been successfully installed on your server.$(treset)"
 							echo
-							echo -e "$(tbold)Client app AZZPHUC PRO:$(treset)"
-							echo -e "$(tblue)https://play.google.com/store/apps/details?id=com.azzphucmasterdev.pro$(treset)"
+							echo -e "$(tbold)Client app IP Tunnel VPN:$(treset)"
+							echo -e "$(tblue)https://play.google.com/store/apps/details?id=com.iptunnel.tunnel$(treset)"
 							echo
 							else
 								restart_running_services
 								start_services
 								echo
-								echo -e "$(tbold)AZZPHUC PRO has been successfully update to $VERSION.$(treset)"
+								echo -e "$(tbold)IP Tunnel Script has been successfully update to $VERSION.$(treset)"
 								echo
 								fi
 }
@@ -891,11 +891,11 @@ perform_remove() {
 	perform_remove_hysteria_systemd
 	
 	echo
-	echo -e "$(tbold)Congratulation! AZZPHUC PRO has been successfully removed from your server.$(treset)"
+	echo -e "$(tbold)Congratulation! IP Tunnel Hysteria Script has been successfully removed from your server.$(treset)"
 	echo
 	echo -e "You still need to remove configuration files and ACME certificates manually with the following commands:"
 	echo
-        echo -e "Username ( Obfs ) And Password Default Is: azzphuc"
+        echo -e "Username ( Obfs ) And Password Default Is: iptunnel"
 	echo
 	echo -e "\t$(tred)rm -rf "$CONFIG_DIR"$(treset)"
 	if [[ "x$HYSTERIA_USER" != "xroot" ]]; then
