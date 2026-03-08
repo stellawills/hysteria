@@ -10,7 +10,7 @@ set -e
 ###
 
 # Domain Name
-DOMAIN="iptunnel.eu.org"
+DOMAIN="${DOMAIN:-}"
 
 # PROTOCOL
 PROTOCOL="udp"
@@ -19,10 +19,10 @@ PROTOCOL="udp"
 UDP_PORT=":5666"
 
 # OBFS
-OBFS="iptunnel"
+OBFS="${OBFS:-}"
 
-# PASSWORDS
-PASSWORD="iptunnel"
+# Password. Leave empty to auto-generate a secure value on first install.
+PASSWORD="${PASSWORD:-}"
 # Basename of this script
 SCRIPT_NAME="$(basename "$0")"
 
@@ -37,6 +37,9 @@ SYSTEMD_SERVICES_DIR="/etc/systemd/system"
 
 # Directory to store hysteria config file
 CONFIG_DIR="/etc/hysteria"
+
+# Sysctl drop-in managed by this script
+SYSCTL_CONFIG_PATH="/etc/sysctl.d/99-hysteria.conf"
 
 # URLs of GitHub
 REPO_URL="https://github.com/apernet/hysteria"
@@ -194,7 +197,7 @@ install_content() {
 	local _tmpfile="$(mktemp)"
 	
 	echo -ne "Install $_destination ... "
-	echo "$_content" > "$_tmpfile"
+	printf '%s' "$_content" > "$_tmpfile"
 	if install "$_install_flags" "$_tmpfile" "$_destination"; then
 		echo -e "ok"
 		fi
@@ -206,9 +209,157 @@ remove_file() {
 	local _target="$1"
 	
 	echo -ne "Remove $_target ... "
-	if rm "$_target"; then
+	if rm -f "$_target"; then
 		echo -e "ok"
 		fi
+}
+
+generate_random_password() {
+	local _password
+
+	if has_command openssl; then
+		_password="$(openssl rand -hex 16 2> /dev/null || true)"
+		if [[ -n "$_password" ]]; then
+			echo "$_password"
+			return 0
+			fi
+		fi
+
+		LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32
+}
+
+is_interactive() {
+	[[ -t 0 && -t 1 ]]
+}
+
+prompt_value() {
+	local _label="$1"
+	local _current_value="$2"
+	local _entered_value
+
+	if ! is_interactive; then
+		echo "$_current_value"
+		return 0
+		fi
+
+		if [[ -n "$_current_value" ]]; then
+			read -r -p "$_label [$_current_value]: " _entered_value || true
+			else
+				read -r -p "$_label: " _entered_value || true
+				fi
+
+				if [[ -n "$_entered_value" ]]; then
+					echo "$_entered_value"
+					else
+						echo "$_current_value"
+						fi
+}
+
+prompt_password_value() {
+	local _current_value="$1"
+	local _entered_value
+
+	if ! is_interactive; then
+		echo "$_current_value"
+		return 0
+		fi
+
+		if [[ -n "$_current_value" ]]; then
+			echo "Press Enter to keep the current password or type a new one."
+			else
+				echo "Press Enter to auto-generate a secure password."
+				fi
+
+				read -r -s -p "Password: " _entered_value || true
+				echo
+
+				if [[ -n "$_entered_value" ]]; then
+					echo "$_entered_value"
+					else
+						echo "$_current_value"
+						fi
+}
+
+read_existing_config_string() {
+	local _key="$1"
+	local _config_path="$CONFIG_DIR/config.json"
+
+	if [[ ! -f "$_config_path" ]]; then
+		return 0
+		fi
+
+		sed -n "s/.*\"$_key\":[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$_config_path" | head -1
+}
+
+read_existing_password() {
+	local _config_path="$CONFIG_DIR/config.json"
+
+	if [[ ! -f "$_config_path" ]]; then
+		return 0
+		fi
+
+		sed -n 's/.*"config":[[:space:]]*\["\([^"]*\)"\].*/\1/p' "$_config_path" | head -1
+}
+
+ensure_hysteria_domain() {
+	local _existing_domain
+
+	if [[ -z "$DOMAIN" ]]; then
+		_existing_domain="$(read_existing_config_string "server" || true)"
+		if [[ -n "$_existing_domain" ]]; then
+			DOMAIN="$_existing_domain"
+			fi
+		fi
+
+		DOMAIN="$(prompt_value "Domain" "$DOMAIN")"
+		if [[ -z "$DOMAIN" ]]; then
+			error "DOMAIN is required."
+			exit 22
+			fi
+}
+
+ensure_hysteria_obfs() {
+	local _existing_obfs
+
+	if [[ -z "$OBFS" ]]; then
+		_existing_obfs="$(read_existing_config_string "obfs" || true)"
+		if [[ -n "$_existing_obfs" ]]; then
+			OBFS="$_existing_obfs"
+			fi
+		fi
+
+		OBFS="$(prompt_value "Obfs" "$OBFS")"
+		if [[ -z "$OBFS" ]]; then
+			error "OBFS is required."
+			exit 22
+			fi
+}
+
+ensure_hysteria_password() {
+	local _existing_password
+
+	if [[ -z "$PASSWORD" ]]; then
+		_existing_password="$(read_existing_password || true)"
+		if [[ -n "$_existing_password" ]]; then
+			PASSWORD="$_existing_password"
+			fi
+		fi
+
+	PASSWORD="$(prompt_password_value "$PASSWORD")"
+
+	if [[ -z "$PASSWORD" ]]; then
+		PASSWORD="$(generate_random_password)"
+		if [[ -z "$PASSWORD" ]]; then
+			error "Unable to generate a secure Hysteria password."
+			exit 70
+			fi
+		fi
+}
+
+collect_install_configuration() {
+	ensure_hysteria_domain
+	ensure_hysteria_obfs
+	ensure_hysteria_password
 }
 
 exec_sudo() {
@@ -219,7 +370,8 @@ exec_sudo() {
 		$(env | grep "^PACKAGE_MANAGEMENT_INSTALL=" || true)
 		$(env | grep "^OPERATING_SYSTEM=" || true)
 		$(env | grep "^ARCHITECTURE=" || true)
-		$(env | grep "^HYSTERIA_\w*=" || true)
+		$(env | grep "^HYSTERIA_USER=" || true)
+		$(env | grep "^HYSTERIA_HOME_DIR=" || true)
 		$(env | grep "^FORCE_\w*=" || true)
 	)
 	IFS="$_saved_ifs"
@@ -394,12 +546,20 @@ check_environment_grep() {
 		apt update; apt -y install grep
 }
 
+check_environment_openssl() {
+	if has_command openssl; then
+		return
+		fi
+		apt update; apt -y install openssl
+}
+
 check_environment() {
 	check_environment_operating_system
 	check_environment_architecture
 	check_environment_systemd
 	check_environment_curl
 	check_environment_grep
+	check_environment_openssl
 }
 
 vercmp_segment() {
@@ -512,15 +672,23 @@ check_hysteria_user() {
 			return
 			fi
 			
-			HYSTERIA_USER="$(grep -o '^User=\w*' "$SYSTEMD_SERVICES_DIR/hysteria-server.service" | tail -1 | cut -d '=' -f 2 || true)"
+			HYSTERIA_USER="$(sed -n 's/^User=//p' "$SYSTEMD_SERVICES_DIR/hysteria-server.service" | head -1 || true)"
 			
 			if [[ -z "$HYSTERIA_USER" ]]; then
 				HYSTERIA_USER="$_default_hysteria_user"
 				fi
 }
 
+validate_hysteria_user() {
+	if [[ ! "$HYSTERIA_USER" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]]; then
+		error "Invalid HYSTERIA_USER '$HYSTERIA_USER'."
+		exit 22
+		fi
+}
+
 check_hysteria_homedir() {
 	local _default_hysteria_homedir="$1"
+	local _existing_homedir
 	
 	if [[ -n "$HYSTERIA_HOME_DIR" ]]; then
 		return
@@ -530,8 +698,20 @@ check_hysteria_homedir() {
 			HYSTERIA_HOME_DIR="$_default_hysteria_homedir"
 			return
 			fi
-			
-			HYSTERIA_HOME_DIR="$(eval echo ~"$HYSTERIA_USER")"
+
+			_existing_homedir="$(getent passwd "$HYSTERIA_USER" | cut -d ':' -f 6 || true)"
+			if [[ -n "$_existing_homedir" ]]; then
+				HYSTERIA_HOME_DIR="$_existing_homedir"
+				else
+					HYSTERIA_HOME_DIR="$_default_hysteria_homedir"
+					fi
+}
+
+validate_hysteria_homedir() {
+	if [[ -z "$HYSTERIA_HOME_DIR" || "${HYSTERIA_HOME_DIR#/}" == "$HYSTERIA_HOME_DIR" ]]; then
+		error "HYSTERIA_HOME_DIR must be an absolute path."
+		exit 22
+		fi
 }
 
 
@@ -546,18 +726,13 @@ show_usage_and_exit() {
 	echo -e "Usage:"
 	echo
 	echo -e "$(tbold)Install IP Tunnel VPN$(treset)"
-	echo -e "\t$0 [ -f | -l <file> | --version <version> ]"
+	echo -e "\t$0 [ -l <file> | --version <version> ]"
 	echo -e "Flags:"
-	echo -e "\t-f, --force\tForce re-install latest or specified version even if it has been installed."
 	echo -e "\t-l, --local <file>\tInstall specified IP Tunnel VPN binary instead of downloading it."
 	echo -e "\t--version <version>\tInstall specified version instead of the latest."
 	echo
 	echo -e "$(tbold)Remove IP Tunnel VPN$(treset)"
 	echo -e "\t$0 --remove"
-	echo
-	echo -e "$(tbold)Check for the update$(treset)"
-	echo -e "\t$0 -c"
-	echo -e "\t$0 --check"
 	echo
 	echo -e "$(tbold)Show this help$(treset)"
 	echo -e "\t$0 -h"
@@ -639,11 +814,15 @@ Description=IP Tunnel VPN Service
 After=network.target
 
 [Service]
-User=root
-Group=root
-WorkingDirectory=/etc/hysteria
+User=$HYSTERIA_USER
+Group=$(get_hysteria_group)
+WorkingDirectory=$CONFIG_DIR
 Environment="PATH=/usr/local/bin/hysteria"
 ExecStart=/usr/local/bin/hysteria -config /etc/hysteria/config.json server
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
@@ -664,7 +843,7 @@ tpl_hysteria_server_x_service() {
 tpl_etc_hysteria_config_json() {
   cat << EOF
 {
-  "server": "iptunnel.eu.org",
+  "server": "$DOMAIN",
    "listen": "$UDP_PORT",
   "protocol": "$PROTOCOL",
   "cert": "/etc/hysteria/hysteria.server.crt",
@@ -783,7 +962,89 @@ download_hysteria() {
 		return 0
 }
 
- 
+get_default_network_interface() {
+	ip -4 route show default 2> /dev/null | awk 'NR == 1 { print $5 }'
+}
+
+get_hysteria_group() {
+	id -gn "$HYSTERIA_USER"
+}
+
+secure_hysteria_assets() {
+	local _group
+
+	_group="$(get_hysteria_group)"
+	install -d -m 750 -o "$HYSTERIA_USER" -g "$_group" "$CONFIG_DIR"
+
+	if [[ -e "$CONFIG_DIR/config.json" ]]; then
+		chown "$HYSTERIA_USER:$_group" "$CONFIG_DIR/config.json"
+		chmod 640 "$CONFIG_DIR/config.json"
+		fi
+
+	if [[ -e "$CONFIG_DIR/hysteria.server.key" ]]; then
+		chown "$HYSTERIA_USER:$_group" "$CONFIG_DIR/hysteria.server.key"
+		chmod 640 "$CONFIG_DIR/hysteria.server.key"
+		fi
+
+	if [[ -e "$CONFIG_DIR/hysteria.server.crt" ]]; then
+		chown "$HYSTERIA_USER:$_group" "$CONFIG_DIR/hysteria.server.crt"
+		chmod 640 "$CONFIG_DIR/hysteria.server.crt"
+		fi
+
+	if [[ -e "$CONFIG_DIR/hysteria.ca.key" ]]; then
+		chown root:root "$CONFIG_DIR/hysteria.ca.key"
+		chmod 600 "$CONFIG_DIR/hysteria.ca.key"
+		fi
+
+	if [[ -e "$CONFIG_DIR/hysteria.ca.crt" ]]; then
+		chown root:root "$CONFIG_DIR/hysteria.ca.crt"
+		chmod 644 "$CONFIG_DIR/hysteria.ca.crt"
+		fi
+}
+
+tpl_etc_hysteria_sysctl_conf() {
+	local _interface="$1"
+
+	cat << EOF
+net.ipv4.ip_forward = 1
+net.ipv4.conf.all.rp_filter = 0
+net.ipv4.conf.$_interface.rp_filter = 0
+EOF
+}
+
+configure_hysteria_sysctl() {
+	local _interface="$1"
+
+	install_content -Dm644 "$(tpl_etc_hysteria_sysctl_conf "$_interface")" "$SYSCTL_CONFIG_PATH" ""
+	if ! sysctl --system > /dev/null 2>&1; then
+		sysctl -p "$SYSCTL_CONFIG_PATH" > /dev/null
+		fi
+}
+
+add_nat_prerouting_rule_if_missing() {
+	local _tool="$1"
+	local _interface="$2"
+	shift 2
+
+	if "$_tool" -t nat -C PREROUTING -i "$_interface" "$@" > /dev/null 2>&1; then
+		return 0
+		fi
+
+		"$_tool" -t nat -A PREROUTING -i "$_interface" "$@"
+}
+
+show_install_summary() {
+	echo
+	echo -e "$(tbold)Connection details$(treset)"
+	echo -e "Domain: $DOMAIN"
+	echo -e "Port: ${UDP_PORT#:}"
+	echo -e "Protocol: $PROTOCOL"
+	echo -e "Obfs: $OBFS"
+	echo -e "Password: $PASSWORD"
+	echo -e "Config: $CONFIG_DIR/config.json"
+	echo
+}
+
 
 ###
 # ENTRY
@@ -827,8 +1088,7 @@ perform_remove_hysteria_binary() {
 }
 
 perform_install_hysteria_example_config() {
-install_content -Dm644 "$(tpl_etc_hysteria_config_json)" "$CONFIG_DIR/config.json" ""
- 
+	install_content -Dm600 "$(tpl_etc_hysteria_config_json)" "$CONFIG_DIR/config.json" ""
 }
 
 perform_install_hysteria_systemd() {
@@ -863,26 +1123,30 @@ perform_install() {
 		_is_frash_install=1
 		fi
 		
- 						perform_install_hysteria_binary
-						perform_install_hysteria_example_config
-						perform_install_hysteria_home_legacy
-						perform_install_hysteria_systemd
-						setup_ssl
-					    start_services
-						if [[ -n "$_is_frash_install" ]]; then
-							echo
-							echo -e "$(tbold)Congratulation! IP Tunnel VPN Hysteria Script has been successfully installed on your server.$(treset)"
-							echo
-							echo -e "$(tbold)Client app IP Tunnel VPN:$(treset)"
-							echo -e "$(tblue)https://play.google.com/store/apps/details?id=com.iptunnel.tunnel$(treset)"
-							echo
-							else
-								restart_running_services
-								start_services
-								echo
-								echo -e "$(tbold)IP Tunnel Script has been successfully update to $VERSION.$(treset)"
-								echo
-								fi
+		collect_install_configuration
+		perform_install_hysteria_binary
+		perform_install_hysteria_home_legacy
+		perform_install_hysteria_example_config
+		perform_install_hysteria_systemd
+		setup_ssl
+		secure_hysteria_assets
+		start_services
+		if [[ -n "$_is_frash_install" ]]; then
+			echo
+			echo -e "$(tbold)Congratulation! IP Tunnel VPN Hysteria Script has been successfully installed on your server.$(treset)"
+			echo
+			echo -e "$(tbold)Client app IP Tunnel VPN:$(treset)"
+			echo -e "$(tblue)https://play.google.com/store/apps/details?id=com.iptunnel.tunnel$(treset)"
+			echo
+			show_install_summary
+			else
+				restart_running_services
+				start_services
+				echo
+				echo -e "$(tbold)IP Tunnel Script has been successfully update to $VERSION.$(treset)"
+				echo
+				show_install_summary
+				fi
 }
 
 perform_remove() {
@@ -894,8 +1158,6 @@ perform_remove() {
 	echo -e "$(tbold)Congratulation! IP Tunnel Hysteria Script has been successfully removed from your server.$(treset)"
 	echo
 	echo -e "You still need to remove configuration files and ACME certificates manually with the following commands:"
-	echo
-        echo -e "Username ( Obfs ) And Password Default Is: iptunnel"
 	echo
 	echo -e "\t$(tred)rm -rf "$CONFIG_DIR"$(treset)"
 	if [[ "x$HYSTERIA_USER" != "xroot" ]]; then
@@ -912,11 +1174,68 @@ perform_remove() {
 			echo
 }
 
- 
+add_netfilter_rule_if_missing() {
+	local _tool="$1"
+	local _action="$2"
+	shift 2
+
+	if "$_tool" -C "$@" > /dev/null 2>&1; then
+		return 0
+		fi
+
+		"$_tool" "$_action" "$@"
+}
+
+setup_bittorrent_firewall_for_tool() {
+	local _tool="$1"
+	local _chain="HY_BT_BLOCK"
+	local _signature
+	local _protocol
+	local _signatures=(
+		"BitTorrent protocol"
+		"peer_id="
+		".torrent"
+		"announce.php?passkey="
+	)
+
+	if ! has_command "$_tool"; then
+		return 0
+		fi
+
+		if "$_tool" -nL "$_chain" > /dev/null 2>&1; then
+			"$_tool" -F "$_chain"
+			else
+				"$_tool" -N "$_chain"
+				fi
+
+				add_netfilter_rule_if_missing "$_tool" -I INPUT -j "$_chain"
+				add_netfilter_rule_if_missing "$_tool" -I OUTPUT -j "$_chain"
+				add_netfilter_rule_if_missing "$_tool" -I FORWARD -j "$_chain"
+
+				for _signature in "${_signatures[@]}"; do
+					for _protocol in tcp udp; do
+						add_netfilter_rule_if_missing "$_tool" -A "$_chain" -p "$_protocol" -m string --algo bm --string "$_signature" -j DROP
+						done
+						done
+}
+
+setup_bittorrent_firewall() {
+	if has_command modprobe; then
+		modprobe xt_string > /dev/null 2>&1 || true
+		fi
+
+	setup_bittorrent_firewall_for_tool iptables
+	setup_bittorrent_firewall_for_tool ip6tables
+}
+
 
 
 setup_ssl() {
+	local _old_umask
+
 	echo "Installing ssl"
+	_old_umask="$(umask)"
+	umask 077
 
 	openssl genrsa -out /etc/hysteria/hysteria.ca.key 2048
 
@@ -925,23 +1244,38 @@ setup_ssl() {
 	openssl req -newkey rsa:2048 -nodes -keyout /etc/hysteria/hysteria.server.key -subj "/C=CN/ST=GD/L=SZ/O=Hysteria, Inc./CN=$DOMAIN" -out /etc/hysteria/hysteria.server.csr
 
 	openssl x509 -req -extfile <(printf "subjectAltName=DNS:$DOMAIN,DNS:$DOMAIN") -days 3650 -in /etc/hysteria/hysteria.server.csr -CA /etc/hysteria/hysteria.ca.crt -CAkey /etc/hysteria/hysteria.ca.key -CAcreateserial -out /etc/hysteria/hysteria.server.crt	
- }
+	rm -f /etc/hysteria/hysteria.server.csr /etc/hysteria/hysteria.ca.srl
+	umask "$_old_umask"
+}
 start_services() {
+	local _default_interface
+
 	echo "Starting AZZPHUC PRO"
 	apt update
-	sudo debconf-set-selections <<< "iptables-persistent iptables-persistent/autosave_v4 boolean true"
-        sudo debconf-set-selections <<< "iptables-persistent iptables-persistent/autosave_v6 boolean true"
+	debconf-set-selections <<< "iptables-persistent iptables-persistent/autosave_v4 boolean true"
+	debconf-set-selections <<< "iptables-persistent iptables-persistent/autosave_v6 boolean true"
 	apt -y install iptables-persistent
-	iptables -t nat -A PREROUTING -i $(ip -4 route ls|grep default|grep -Po '(?<=dev )(\S+)'|head -1) -p udp --dport 10000:65000 -j DNAT --to-destination $UDP_PORT
-	ip6tables -t nat -A PREROUTING -i $(ip -4 route ls|grep default|grep -Po '(?<=dev )(\S+)'|head -1) -p udp --dport 10000:65000 -j DNAT --to-destination $UDP_PORT
-	sysctl net.ipv4.conf.all.rp_filter=0
-	sysctl net.ipv4.conf.$(ip -4 route ls|grep default|grep -Po '(?<=dev )(\S+)'|head -1).rp_filter=0 
-	echo "net.ipv4.ip_forward = 1
-	net.ipv4.conf.all.rp_filter=0
-	net.ipv4.conf.$(ip -4 route ls|grep default|grep -Po '(?<=dev )(\S+)'|head -1).rp_filter=0" > /etc/sysctl.conf  
-	sysctl -p
-        sudo iptables-save > /etc/iptables/rules.v4
-        sudo ip6tables-save > /etc/iptables/rules.v6
+	_default_interface="$(get_default_network_interface)"
+	if [[ -z "$_default_interface" ]]; then
+		error "Unable to detect the default IPv4 network interface."
+		exit 65
+		fi
+
+	add_nat_prerouting_rule_if_missing iptables "$_default_interface" -p udp --dport 10000:65000 -j DNAT --to-destination "$UDP_PORT"
+	if has_command modprobe; then
+		modprobe ip6table_nat > /dev/null 2>&1 || true
+		fi
+	if has_command ip6tables && ip6tables -t nat -S > /dev/null 2>&1; then
+		add_nat_prerouting_rule_if_missing ip6tables "$_default_interface" -p udp --dport 10000:65000 -j DNAT --to-destination "$UDP_PORT"
+		fi
+
+	configure_hysteria_sysctl "$_default_interface"
+	setup_bittorrent_firewall
+	systemctl enable netfilter-persistent > /dev/null 2>&1 || true
+	iptables-save > /etc/iptables/rules.v4
+	if has_command ip6tables-save; then
+		ip6tables-save > /etc/iptables/rules.v6
+		fi
 	systemctl enable hysteria-server.service
 	systemctl start hysteria-server.service	
 }
@@ -953,7 +1287,9 @@ parse_arguments "$@"
 	check_permission
 	check_environment
 	check_hysteria_user "hysteria"
+	validate_hysteria_user
 	check_hysteria_homedir "/var/lib/$HYSTERIA_USER"
+	validate_hysteria_homedir
 	case "$OPERATION" in
 	"install")
 	perform_install
