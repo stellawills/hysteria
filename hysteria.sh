@@ -1250,7 +1250,7 @@ setup_ssl() {
 start_services() {
 	local _default_interface
 
-	echo "Starting AZZPHUC PRO"
+	echo "Starting IPTunnel VPN Hysteria"
 	apt update
 	debconf-set-selections <<< "iptables-persistent iptables-persistent/autosave_v4 boolean true"
 	debconf-set-selections <<< "iptables-persistent iptables-persistent/autosave_v6 boolean true"
